@@ -46,6 +46,16 @@ brooks-mcp-demo/                     父 POM（packaging=pom，聚合两个模�
         └── config/OpenApiConfig.java
 ```
 
+同一个 `CalculatorService`，两条对外暴露路径：
+
+```mermaid
+graph LR
+    REST["REST 调用方<br/>curl · Swagger UI"] --> CTRL["CalculatorController<br/>GET /api/v1/calculator/*"]
+    MCPC["MCP 调用方<br/>calculator-mcp-client<br/>Claude Desktop 等"] -->|"SSE · JSON-RPC"| TOOLS["CalculatorMcpTools<br/>@McpTool × 4"]
+    CTRL --> SVC["CalculatorService<br/>add / subtract / multiply / divide"]
+    TOOLS --> SVC
+```
+
 **为什么拆成两个进程？**
 MCP 的本质是「客户端通过协议访问独立进程的服务端」。如果把 Client 和 Server 塞进同一个 JVM，Client 必须在 Server 的 HTTP 端点就绪后才能连接，而 `spring.ai.mcp.client.initialized` 默认为 `true`，意味着 Bean 创建阶段就会去 `initialize()` 拉工具列表——此时 MVC 的 SSE 端点处理器可能还没注册。这是一个真实的启动竞态。拆成两个进程既绕开了竞态，也忠实还原了 MCP 的跨进程架构。
 
@@ -171,15 +181,28 @@ curl -X POST http://localhost:8081/api/v1/chat \
 
 这条请求背后发生的完整链路：
 
-```
-HTTP POST /api/v1/chat
-  → CalculatorChatService.chat(message)
-  → ChatClient.prompt().user(msg).tools(mcpTools).call()
-  → DeepSeek 模型判断需要调用工具，返回 tool_calls
-  → Spring AI 通过 MCP Client 把 tools/call 发到 http://localhost:8080/mcp/message
-  → 服务端 CalculatorMcpTools.divide(100, 8) → CalculatorService.divide
-  → 结果 12.5 回传给模型
-  → 模型组织自然语言答案返回
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 调用方<br/>curl / Swagger
+    participant C as 客户端 :8081<br/>ChatController
+    participant D as DeepSeek 模型
+    participant M as MCP Client<br/>(同进程)
+    participant S as 服务端 :8080<br/>CalculatorMcpTools
+    participant V as CalculatorService
+
+    U->>C: POST /api/v1/chat  计算 100 除以 8
+    C->>D: 消息 + 4 个工具定义
+    D-->>C: tool_calls: divide(100, 8)
+    C->>M: 执行工具调用
+    M->>S: tools/call divide(100, 8)
+    S->>V: divide(100, 8)
+    V-->>S: 12.5
+    S-->>M: result: 12.5（JSON-RPC 响应经 SSE 推回）
+    M-->>C: 工具结果
+    C->>D: 带上工具结果继续对话
+    D-->>C: 100 ÷ 8 = 12.5
+    C-->>U: answer: 100 ÷ 8 = 12.5
 ```
 
 ---
