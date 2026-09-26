@@ -1,4 +1,4 @@
-# brooks-mcp-demo
+# spring-ai-mcp-calculator
 
 Spring Boot 4 + Spring AI 2 + MCP（Model Context Protocol）四则运算 Demo。
 
@@ -26,9 +26,9 @@ Spring Boot 4 + Spring AI 2 + MCP（Model Context Protocol）四则运算 Demo�
 ## 2. 模块结构
 
 ```
-brooks-mcp-demo/                     父 POM（packaging=pom，聚合两个模块）
+spring-ai-mcp-calculator/          父 POM（packaging=pom，聚合两个模块）
 ├── calculator-mcp-server/           端口 8080 —— MCP Server + REST API + Swagger
-│   └── src/main/java/com/brooks/mcp/server/
+│   └── src/main/java/com/example/mcp/server/
 │       ├── CalculatorMcpServerApplication.java   启动类
 │       ├── service/CalculatorService.java        四则运算业务逻辑（唯一真源）
 │       ├── mcp/CalculatorMcpTools.java           @McpTool 工具定义
@@ -38,7 +38,7 @@ brooks-mcp-demo/                     父 POM（packaging=pom，聚合两个模�
 │       ├── config/OpenApiConfig.java             Swagger 元信息
 │       └── exception/DivisionByZeroException.java
 └── calculator-mcp-client/           端口 8081 —— MCP Client + DeepSeek 对话
-    └── src/main/java/com/brooks/mcp/client/
+    └── src/main/java/com/example/mcp/client/
         ├── CalculatorMcpClientApplication.java   启动类
         ├── chat/CalculatorChatService.java       ChatClient + MCP 工具
         ├── api/ChatController.java               POST /api/v1/chat
@@ -223,7 +223,7 @@ MCP（Model Context Protocol）是 Anthropic 提出的开放协议，把「模�
 
 ### 5.2 服务端：一个注解就够了
 
-[CalculatorMcpTools.java](calculator-mcp-server/src/main/java/com/brooks/mcp/server/mcp/CalculatorMcpTools.java) 的全部工作量就是加注解：
+[CalculatorMcpTools.java](calculator-mcp-server/src/main/java/com/example/mcp/server/mcp/CalculatorMcpTools.java) 的全部工作量就是加注解：
 
 ```java
 @Component
@@ -280,7 +280,7 @@ spring.ai.mcp.server.protocol: STREAMABLE
 
 ### 5.5 客户端：ChatClient + ToolCallbackProvider
 
-[CalculatorChatService.java](calculator-mcp-client/src/main/java/com/brooks/mcp/client/chat/CalculatorChatService.java)：
+[CalculatorChatService.java](calculator-mcp-client/src/main/java/com/example/mcp/client/chat/CalculatorChatService.java)：
 
 ```java
 this.chatClient = builder

@@ -2,7 +2,7 @@
 
 ## 1. 概述（Summary）
 
-在空目录 `d:\CodeRepo\RAG\brooks-mcp-demo` 中，从零建立一个 **Git + Maven 多模块** 的 Spring Boot 4 / Spring AI 2 项目，交付一个「MCP Server 计算器」Demo，包含：
+在空目录 `d:\CodeRepo\RAG\spring-ai-mcp-calculator` 中，从零建立一个 **Git + Maven 多模块** 的 Spring Boot 4 / Spring AI 2 项目，交付一个「MCP Server 计算器」Demo，包含：
 
 1. **MCP Server**：通过 HTTP + SSE 暴露 4 个 MCP 工具（add / subtract / multiply / divide）
 2. **REST API**：同样的四则运算能力，走普通 HTTP 接口
@@ -19,7 +19,7 @@
 
 | 项 | 结论 |
 |---|---|
-| 工作目录 | `d:\CodeRepo\RAG\brooks-mcp-demo` **完全为空**，且 **不是 git 仓库** |
+| 工作目录 | `d:\CodeRepo\RAG\spring-ai-mcp-calculator` **完全为空**，且 **不是 git 仓库** |
 | Java | `openjdk 25.0.4.1 LTS`（Amazon Corretto，`C:\Program Files\Amazon Corretto\jdk25.0.4_8`）✅ |
 | Maven | `Apache Maven 3.9.7` ✅ |
 | Git | `git version 2.54.0.windows.1` ✅ |
@@ -118,7 +118,7 @@ Boot 4 模块化把 `@WebMvcTest` 等注解搬到了新的 test 模块（如 `sp
 ## 5. 目标目录结构
 
 ```
-d:\CodeRepo\RAG\brooks-mcp-demo\
+d:\CodeRepo\RAG\spring-ai-mcp-calculator\
 ├── .gitignore
 ├── .trae\documents\spring-boot4-spring-ai2-mcp-calculator-demo.md   ← 本计划
 ├── README.md                                                          ← 讲解文档
@@ -126,7 +126,7 @@ d:\CodeRepo\RAG\brooks-mcp-demo\
 ├── calculator-mcp-server\                                             ← 端口 8080
 │   ├── pom.xml
 │   └── src\
-│       ├── main\java\com\brooks\mcp\server\
+│       ├── main\java\com\example\mcp\server\
 │       │   ├── CalculatorMcpServerApplication.java
 │       │   ├── service\CalculatorService.java
 │       │   ├── exception\DivisionByZeroException.java
@@ -136,13 +136,13 @@ d:\CodeRepo\RAG\brooks-mcp-demo\
 │       │   ├── api\dto\ArithmeticResponse.java
 │       │   └── config\OpenApiConfig.java
 │       ├── main\resources\application.yml
-│       └── test\java\com\brooks\mcp\server\
+│       └── test\java\com\example\mcp\server\
 │           ├── service\CalculatorServiceTest.java
 │           └── api\CalculatorControllerTest.java
 └── calculator-mcp-client\                                             ← 端口 8081
     ├── pom.xml
     └── src\
-        ├── main\java\com\brooks\mcp\client\
+        ├── main\java\com\example\mcp\client\
         │   ├── CalculatorMcpClientApplication.java
         │   ├── chat\CalculatorChatService.java
         │   ├── api\ChatController.java
@@ -158,7 +158,7 @@ d:\CodeRepo\RAG\brooks-mcp-demo\
 
 ### Step 0 — Git 初始化 + `.gitignore`
 
-在 `d:\CodeRepo\RAG\brooks-mcp-demo` 执行 `git init`。
+在 `d:\CodeRepo\RAG\spring-ai-mcp-calculator` 执行 `git init`。
 
 `.gitignore` 内容：
 
@@ -174,7 +174,7 @@ target/
 ### Step 1 — 父 pom：`pom.xml`
 
 - `parent` = `spring-boot-starter-parent:4.0.8`
-- `groupId=com.brooks.mcp`，`artifactId=brooks-mcp-demo`，`version=1.0.0`，`packaging=pom`
+- `groupId=com.example.mcp`，`artifactId=spring-ai-mcp-calculator`，`version=1.0.0`，`packaging=pom`
 - `modules` = 两个子模块
 - `properties`：`java.version=25`、`maven.compiler.release=25`、`project.build.sourceEncoding=UTF-8`、`spring-ai.version=2.0.1`、`springdoc.version=3.1.1`
 - `dependencyManagement`：`import` 引入 `spring-ai-bom:2.0.1`
@@ -193,7 +193,7 @@ target/
 
 （版本除 springdoc 外全部由父 pom 的 BOM / Boot parent 管理）
 
-**Java 文件（`com.brooks.mcp.server` 包）**
+**Java 文件（`com.example.mcp.server` 包）**
 
 1. `CalculatorMcpServerApplication` — 标准 `@SpringBootApplication` + `main`
 
@@ -304,7 +304,7 @@ springdoc:
 
 > 用标准版 `spring-ai-starter-mcp-client`（SSE 基于 JDK HttpClient），**不引入 WebFlux**，避免不必要的响应式自动配置。
 
-**Java 文件（`com.brooks.mcp.client` 包）**
+**Java 文件（`com.example.mcp.client` 包）**
 
 1. `CalculatorMcpClientApplication` — 标准 `@SpringBootApplication` + `main`
 

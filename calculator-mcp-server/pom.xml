@@ -5,8 +5,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.brooks.mcp</groupId>
-        <artifactId>brooks-mcp-demo</artifactId>
+        <groupId>com.example.mcp</groupId>
+        <artifactId>spring-ai-mcp-calculator</artifactId>
         <version>1.0.0</version>
     </parent>
 

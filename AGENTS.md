@@ -179,7 +179,7 @@ curl.exe -X POST "http://localhost:8080/mcp/message?sessionId=<SESSION_ID>" `
 
 ### 5.3 验证「模型真的调了工具」还是自己心算
 
-在 [CalculatorMcpTools.java](calculator-mcp-server/src/main/java/com/brooks/mcp/server/mcp/CalculatorMcpTools.java) 或 `CalculatorService` 的方法里打断点 / 加一行日志。发起一次对话请求，如果断点命中 → 走的是 MCP 工具链路；没命中 → 模型自己口算了，检查客户端 system prompt。
+在 [CalculatorMcpTools.java](calculator-mcp-server/src/main/java/com/example/mcp/server/mcp/CalculatorMcpTools.java) 或 `CalculatorService` 的方法里打断点 / 加一行日志。发起一次对话请求，如果断点命中 → 走的是 MCP 工具链路；没命中 → 模型自己口算了，检查客户端 system prompt。
 
 ### 5.4 跑测试
 
@@ -207,7 +207,7 @@ mvn -pl calculator-mcp-server test -Dtest=CalculatorServiceTest    # 只跑一�
 | 客户端启动即退出，日志有连接拒绝 | 服务端没起或没起完。先起 8080，等到 Tomcat 就绪 |
 | 客户端报 `api-key` 相关错误 | `DEEPSEEK_API_KEY` 未设置，或设置的终端不是启动 jar 的那个终端 |
 | 端口被占用 | `netstat -ano \| findstr :8080` 找 PID 后杀掉，或用 `--server.port=` 换端口 |
-| 服务端日志没有 `Registered tools` | 工具类缺 `@Component`，或不在 `com.brooks.mcp.server` 包扫描路径下 |
+| 服务端日志没有 `Registered tools` | 工具类缺 `@Component`，或不在 `com.example.mcp.server` 包扫描路径下 |
 | 日志提示 SSE 已 deprecated | 预期内。Spring AI 2.0.0 起 SSE 标记废弃，本项目为兼容 Spring AI 1.0 客户端而保留 |
 | 模型答对了但没调工具 | 改客户端 system prompt，明确要求「必须调用计算器工具，不要心算」 |
 

@@ -11,12 +11,12 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.brooks.mcp</groupId>
-    <artifactId>brooks-mcp-demo</artifactId>
+    <groupId>com.example.mcp</groupId>
+    <artifactId>spring-ai-mcp-calculator</artifactId>
     <version>1.0.0</version>
     <packaging>pom</packaging>
 
-    <name>brooks-mcp-demo</name>
+    <name>spring-ai-mcp-calculator</name>
     <description>Spring Boot 4 + Spring AI 2 MCP Server 四则运算 Demo</description>
 
     <modules>
