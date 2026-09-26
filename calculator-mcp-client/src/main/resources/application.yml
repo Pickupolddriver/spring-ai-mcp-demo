@@ -1,0 +1,23 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: calculator-mcp-client
+  ai:
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY}
+    mcp:
+      client:
+        name: calculator-mcp-client
+        version: 1.0.0
+        type: SYNC
+        sse:
+          connections:
+            calculator-server:
+              url: http://localhost:8080
+              sse-endpoint: /sse
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
