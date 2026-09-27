@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP 流式对话 Demo</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-muted: #f3f4f6;
+    --border: #e3e6ea;
+    --text: #1b1f24;
+    --muted: #6b7280;
+    --brand: #1a7f4b;
+    --brand-on: #ffffff;
+    --brand-soft: #eaf5ef;
+    --user: #eef2f6;
+    --mono: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --surface: #1c2024;
+      --surface-muted: #23282d;
+      --border: #2f353b;
+      --text: #e6e8ea;
+      --muted: #9aa3ad;
+      --brand: #35a76b;
+      --brand-on: #0d1013;
+      --brand-soft: #1b2a22;
+      --user: #262c33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 20px 40px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { margin-bottom: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  header a { color: var(--brand); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .presets button {
+    background: var(--surface-muted);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .presets button:hover { border-color: var(--brand); color: var(--brand); }
+
+  .composer { display: flex; gap: 8px; }
+  .composer input {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 12px;
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .composer input:focus { outline: none; border-color: var(--brand); }
+  .composer button {
+    padding: 9px 18px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--brand-on);
+    background: var(--brand);
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .composer button:disabled { opacity: .5; cursor: not-allowed; }
+  .composer .ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    font-weight: 400;
+  }
+
+  .msg { margin-bottom: 12px; }
+  .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .bubble {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 22px;
+  }
+  .msg.user .bubble { background: var(--user); }
+  .msg.bot .bubble { background: var(--surface); }
+  .caret {
+    display: inline-block;
+    width: 7px;
+    height: 15px;
+    margin-left: 1px;
+    vertical-align: -2px;
+    background: var(--brand);
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .hint { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .spinner {
+    width: 12px; height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--brand);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; color: var(--muted); }
+  .stats b { color: var(--text); font-weight: 600; }
+  .stats .silent b { color: var(--brand); }
+
+  details summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--muted);
+    list-style: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before { content: "▸ "; }
+  details[open] summary::before { content: "▾ "; }
+  .chunks { margin-top: 10px; max-height: 260px; overflow: auto; }
+  .row {
+    display: grid;
+    grid-template-columns: 44px 68px 1fr;
+    gap: 8px;
+    align-items: baseline;
+    padding: 3px 0;
+    border-bottom: 1px dashed var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .n { color: var(--muted); }
+  .row .t { color: var(--muted); text-align: right; }
+  .row .p { color: var(--brand); white-space: pre-wrap; word-break: break-all; }
+  .empty { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>MCP 流式对话 Demo</h1>
+    <p>POST <code>/api/v1/chat</code> → SSE 逐块返回，模型会自动调用远端 MCP 计算器工具。
+       接口文档见 <a href="/swagger-ui.html">Swagger UI</a>。</p>
+  </header>
+
+  <div class="card">
+    <div class="presets" id="presets"></div>
+    <div class="composer">
+      <input id="input" placeholder="用自然语言提问，例如：计算 100 除以 8" autocomplete="off">
+      <button id="send">发送</button>
+      <button id="clear" class="ghost">清空</button>
+    </div>
+  </div>
+
+  <div class="card" id="chat">
+    <div class="empty">还没有对话。点上面的示例，或直接输入问题。</div>
+  </div>
+
+  <div class="card">
+    <div class="stats">
+      <span class="silent">首块耗时（工具调用静默期）<b id="s-first">—</b></span>
+      <span>总耗时 <b id="s-total">—</b></span>
+      <span>分块数 <b id="s-count">—</b></span>
+      <span>字符数 <b id="s-chars">—</b></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <details id="raw">
+      <summary>原始 SSE 分块（每次 <code>data:</code> 事件）</summary>
+      <div class="chunks" id="chunks"><div class="empty">暂无数据。</div></div>
+    </details>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const EXAMPLES = [
+    '计算 100 除以 8',
+    '帮我算一下 (12 + 8) * 3 等于多少',
+    '100 除以 0 是多少',
+    '12 加 8 再乘以 3 是多少'
+  ];
+
+  const chatEl = document.getElementById('chat');
+  const inputEl = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const clearBtn = document.getElementById('clear');
+  const chunksEl = document.getElementById('chunks');
+  const rawEl = document.getElementById('raw');
+  const presetsEl = document.getElementById('presets');
+  const stat = {
+    first: document.getElementById('s-first'),
+    total: document.getElementById('s-total'),
+    count: document.getElementById('s-count'),
+    chars: document.getElementById('s-chars')
+  };
+
+  let busy = false;
+
+  EXAMPLES.forEach(function (text) {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.addEventListener('click', function () {
+      inputEl.value = text;
+      send();
+    });
+    presetsEl.appendChild(b);
+  });
+
+  function resetOutput() {
+    chatEl.innerHTML = '';
+    chunksEl.innerHTML = '';
+    stat.first.textContent = '—';
+    stat.total.textContent = '—';
+    stat.count.textContent = '—';
+    stat.chars.textContent = '—';
+  }
+
+  function addMessage(who, label) {
+    const box = document.createElement('div');
+    box.className = 'msg ' + who;
+    const head = document.createElement('div');
+    head.className = 'who';
+    head.textContent = label;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    box.appendChild(head);
+    box.appendChild(bubble);
+    chatEl.appendChild(box);
+    return bubble;
+  }
+
+  function addChunkRow(index, offsetMs, payload) {
+    const row = document.createElement('div');
+    row.className = 'row';
+
+    const n = document.createElement('span');
+    n.className = 'n';
+    n.textContent = '#' + index;
+
+    const t = document.createElement('span');
+    t.className = 't';
+    t.textContent = '+' + offsetMs + 'ms';
+
+    const p = document.createElement('span');
+    p.className = 'p';
+    // 用 JSON 转义显示，便于看清分块自带的前导 / 尾随空格
+    p.textContent = JSON.stringify(payload);
+
+    row.appendChild(n);
+    row.appendChild(t);
+    row.appendChild(p);
+    chunksEl.appendChild(row);
+  }
+
+  function scrollBottom() {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }
+
+  function fail(bubble, message) {
+    bubble.textContent = message;
+    bubble.style.color = '#c0392b';
+    scrollBottom();
+  }
+
+  async function send() {
+    const message = inputEl.value.trim();
+    if (!message || busy) return;
+
+    busy = true;
+    sendBtn.disabled = true;
+    inputEl.disabled = true;
+    resetOutput();
+
+    const userBubble = addMessage('user', '你');
+    userBubble.textContent = message;
+
+    const botBubble = addMessage('bot', '模型（流式）');
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    hint.appendChild(spinner);
+    hint.appendChild(document.createTextNode('等待模型…（若需调用工具，这一轮不会有文字输出）'));
+    botBubble.appendChild(hint);
+
+    const t0 = performance.now();
+    let firstAt = null;
+    let count = 0;
+    let text = '';
+    let answered = false;
+
+    try {
+      const res = await fetch('/api/v1/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: message })
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error('HTTP ' + res.status + ' ' + (body || res.statusText));
+      }
+      if (!res.body) {
+        throw new Error('当前浏览器不支持读取流式响应。');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      for (;;) {
+        const step = await reader.read();
+        if (step.done) break;
+        buffer += decoder.decode(step.value, { stream: true }).replace(/\r\n/g, '\n');
+
+        let sep;
+        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+
+          frame.split('\n').forEach(function (line) {
+            if (line.indexOf('data:') !== 0) return;   // 忽略 event: / id: / 注释行
+            const payload = line.slice(5);             // 注意：不剥掉前导空格，分块自带空格要保留
+
+            if (firstAt === null) firstAt = performance.now();
+
+            if (!answered) {
+              answered = true;
+              botBubble.textContent = '';
+              const caret = document.createElement('span');
+              caret.className = 'caret';
+              botBubble.appendChild(caret);
+            }
+
+            count += 1;
+            text += payload;
+
+            // 光标始终保持在文字末尾
+            const caret = botBubble.querySelector('.caret');
+            botBubble.textContent = text;
+            if (caret) botBubble.appendChild(caret);
+
+            addChunkRow(count, Math.round(performance.now() - t0), payload);
+            if (count === 1) scrollBottom();
+          });
+        }
+      }
+
+      const caret = botBubble.querySelector('.caret');
+      if (caret) caret.remove();
+      if (!answered) {
+        botBubble.textContent = '（本次没有返回任何内容）';
+      }
+
+      stat.first.textContent = firstAt === null ? '—' : Math.round(firstAt - t0) + ' ms';
+      stat.total.textContent = Math.round(performance.now() - t0) + ' ms';
+      stat.count.textContent = count;
+      stat.chars.textContent = text.length;
+
+    } catch (e) {
+      fail(botBubble, '请求失败：' + e.message);
+    } finally {
+      busy = false;
+      sendBtn.disabled = false;
+      inputEl.disabled = false;
+      inputEl.focus();
+      scrollBottom();
+    }
+  }
+
+  sendBtn.addEventListener('click', send);
+  inputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') send();
+  });
+  clearBtn.addEventListener('click', function () {
+    inputEl.value = '';
+    resetOutput();
+    chatEl.innerHTML = '<div class="empty">还没有对话。点上面的示例，或直接输入问题。</div>';
+    inputEl.focus();
+  });
+})();
+</script>
+</body>
+</html>

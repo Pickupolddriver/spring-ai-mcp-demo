@@ -42,7 +42,7 @@ spring-ai-mcp-calculator/          父 POM（packaging=pom，聚合两个模块�
         ├── CalculatorMcpClientApplication.java   启动类
         ├── chat/CalculatorChatService.java       ChatClient + MCP 工具
         ├── api/ChatController.java               POST /api/v1/chat
-        ├── api/dto/ChatRequest.java / ChatResponse.java
+        ├── api/dto/ChatRequest.java
         └── config/OpenApiConfig.java
 ```
 
@@ -103,6 +103,7 @@ java -jar calculator-mcp-client/target/calculator-mcp-client-1.0.0.jar
 | 服务端 Swagger UI | http://localhost:8080/swagger-ui.html |
 | 服务端 OpenAPI JSON | http://localhost:8080/v3/api-docs |
 | 客户端 Swagger UI | http://localhost:8081/swagger-ui.html |
+| 流式对话演示页 | http://localhost:8081/ |
 | MCP SSE 端点 | http://localhost:8080/sse |
 
 ---
@@ -173,18 +174,23 @@ curl -X POST "http://localhost:8080/mcp/message?sessionId=<SESSION_ID>" \
 ### 4.3 LLM 调用 MCP 工具（完整链路）
 
 ```bash
-curl -X POST http://localhost:8081/api/v1/chat \
+curl -N -X POST http://localhost:8081/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{"message":"计算 100 除以 8"}'
-# {"answer":"100 ÷ 8 = 12.5"}
+# 响应是 SSE（text/event-stream），-N 关掉缓冲才能看到逐块到达：
+# data:100
+# data: ÷ 8
+# data: = 12.5
 ```
+
+> PowerShell 下这条命令不能照抄：`-d` 里的双引号会被 shell 吃掉（报 `JSON parse error: Unexpected character`），body 需要用反斜杠转义的写法，见 [AGENTS.md](AGENTS.md) §5.2。
 
 这条请求背后发生的完整链路：
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as 调用方<br/>curl / Swagger
+    participant U as 调用方<br/>curl -N
     participant C as 客户端 :8081<br/>ChatController
     participant D as DeepSeek 模型
     participant M as MCP Client<br/>(同进程)
@@ -202,8 +208,10 @@ sequenceDiagram
     M-->>C: 工具结果
     C->>D: 带上工具结果继续对话
     D-->>C: 100 ÷ 8 = 12.5
-    C-->>U: answer: 100 ÷ 8 = 12.5
+    C-->>U: data: 100 ÷ 8 = 12.5（SSE 逐块）
 ```
+
+> 流式之下，第 2~4 步（模型生成 `tool_calls`、执行工具）期间调用方**收不到任何内容**，DeepSeek 只在最后一轮才开始逐块推送文字增量。所以实际观感是「先静默一小段，再开始出字」。
 
 ---
 
@@ -291,8 +299,10 @@ this.chatClient = builder
 `ToolCallbackProvider` 由 MCP Client 自动配置注入，里面装的就是从 `calculator-mcp-server` 拉回来的 4 个工具。调用的关键一行是 `.tools(mcpTools)`：
 
 ```java
-chatClient.prompt().user(message).tools(mcpTools).call().content();
+chatClient.prompt().user(message).tools(mcpTools).stream().content();   // Flux<String>
 ```
+
+这里用 `.stream()` 而不是 `.call()`：DeepSeek 以 SSE 逐块推回文字增量，`ChatController` 再以 `text/event-stream` 原样转发给调用方。代价是响应契约从 JSON 变成了 SSE——Swagger UI 的 Try it out 显示不了流式响应，得用 `curl -N` 验证。
 
 System prompt 里那句「必须调用工具，不要自己心算」不是客套话——**大模型对简单算术倾向于直接口算**，而口算会出错。把工具调用写进 system prompt 是让 Demo 稳定演示工具链路的必要手段。
 

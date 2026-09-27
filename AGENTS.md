@@ -196,7 +196,7 @@ mvn -pl calculator-mcp-server test -Dtest=CalculatorServiceTest    # 只跑一�
 |---|---|
 | 工具入参/出参 | `CalculatorMcpTools.*` |
 | 业务逻辑 | `CalculatorService.*` |
-| 模型有没有下发 tool_calls | `CalculatorChatService.chat` |
+| 模型有没有下发 tool_calls | `CalculatorChatService.chatStream` |
 
 ---
 
@@ -210,6 +210,7 @@ mvn -pl calculator-mcp-server test -Dtest=CalculatorServiceTest    # 只跑一�
 | 服务端日志没有 `Registered tools` | 工具类缺 `@Component`，或不在 `com.example.mcp.server` 包扫描路径下 |
 | 日志提示 SSE 已 deprecated | 预期内。Spring AI 2.0.0 起 SSE 标记废弃，本项目为兼容 Spring AI 1.0 客户端而保留 |
 | 模型答对了但没调工具 | 改客户端 system prompt，明确要求「必须调用计算器工具，不要心算」 |
+| Swagger 调 `/api/v1/chat` 一直转圈、没结果 | 该端点已是流式（`produces: text/event-stream`），Swagger UI 不支持 SSE。改用 `curl.exe -N` 验证 |
 
 ---
 

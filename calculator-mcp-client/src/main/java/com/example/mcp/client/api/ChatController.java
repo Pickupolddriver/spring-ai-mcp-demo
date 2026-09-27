@@ -1,14 +1,17 @@
 package com.example.mcp.client.api;
 
-import com.example.mcp.client.api.dto.ChatRequest;
-import com.example.mcp.client.api.dto.ChatResponse;
-import com.example.mcp.client.chat.CalculatorChatService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.example.mcp.client.api.dto.ChatRequest;
+import com.example.mcp.client.chat.CalculatorChatService;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import reactor.core.publisher.Flux;
 
 @RestController
 @RequestMapping("/api/v1/chat")
@@ -21,9 +24,9 @@ public class ChatController {
         this.chatService = chatService;
     }
 
-    @PostMapping
-    @Operation(summary = "自然语言对话", description = "例如：帮我算一下 (12 + 8) * 3 等于多少")
-    public ChatResponse chat(@RequestBody ChatRequest request) {
-        return new ChatResponse(chatService.chat(request.message()));
+    @PostMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "自然语言对话（流式）", description = "以 SSE 逐块返回，例如：帮我算一下 (12 + 8) * 3 等于多少")
+    public Flux<String> chat(@RequestBody ChatRequest request) {
+        return chatService.chatStream(request.message());
     }
 }
