@@ -7,6 +7,10 @@ spring:
   ai:
     deepseek:
       api-key: ${DEEPSEEK_API_KEY}
+      chat:
+        # 显式指定模型，不依赖 SDK 默认值：DeepSeekApi.DEFAULT_CHAT_MODEL 当前也是 flash，
+        # 但写死才不会被 SDK 换默认值时悄悄改掉。Pro 换成 deepseek-v4-pro。
+        model: deepseek-flash
     mcp:
       client:
         name: calculator-mcp-client

@@ -98,6 +98,7 @@ Stop-Process -Id <PID> -Force
 |---|---|---|
 | `server.port` | `8081` | HTTP 端口 |
 | `spring.ai.deepseek.api-key` | `${DEEPSEEK_API_KEY}` | **必填**，环境变量缺失会启动失败 |
+| `spring.ai.deepseek.chat.model` | `deepseek-flash` | 模型 id：`deepseek-flash`（V4.1-Flash）/ `deepseek-v4-pro`（V4-Pro）。不配也能跑，SDK 默认恰好也是 flash，但写死才不会被 SDK 换默认值时悄悄改掉 |
 | `spring.ai.mcp.client.name` | `calculator-mcp-client` | 客户端标识 |
 | `spring.ai.mcp.client.version` | `1.0.0` | 客户端版本 |
 | `spring.ai.mcp.client.type` | `SYNC` | 同步客户端（另有 `ASYNC`） |
