@@ -12,7 +12,7 @@
 
     <artifactId>calculator-mcp-client</artifactId>
     <name>calculator-mcp-client</name>
-    <description>MCP Client：通过 SSE 连接 calculator-mcp-server，用 DeepSeek 驱动工具调用</description>
+    <description>MCP Client：通过 Streamable HTTP 连接 calculator-mcp-server，用 DeepSeek 驱动工具调用</description>
 
     <dependencies>
         <dependency>

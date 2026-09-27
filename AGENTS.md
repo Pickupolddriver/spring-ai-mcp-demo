@@ -11,7 +11,7 @@
 | 模块 | 端口 | 角色 |
 |---|---|---|
 | `calculator-mcp-server` | 8080 | MCP Server（4 个 `@McpTool`）+ REST API + Swagger |
-| `calculator-mcp-client` | 8081 | MCP Client（SSE 连服务端）+ DeepSeek 对话入口 |
+| `calculator-mcp-client` | 8081 | MCP Client（Streamable HTTP 连服务端）+ DeepSeek 对话入口 |
 
 两个模块必须**分别启动**，客户端依赖服务端。业务真源只有一个：`CalculatorService`。
 
@@ -88,9 +88,8 @@ Stop-Process -Id <PID> -Force
 | `spring.application.name` | `calculator-mcp-server` | 应用名 |
 | `spring.ai.mcp.server.name` | `calculator-mcp-server` | 返回给客户端的 `serverInfo.name` |
 | `spring.ai.mcp.server.version` | `1.0.0` | `serverInfo.version` |
-| `spring.ai.mcp.server.protocol` | `SSE` | 传输协议：`SSE` / `STREAMABLE` / `STATELESS` |
-| `spring.ai.mcp.server.sse-endpoint` | `/sse` | SSE 长连接端点（客户端从这里拿 sessionId） |
-| `spring.ai.mcp.server.sse-message-endpoint` | `/mcp/message` | 接收 JSON-RPC 请求的端点 |
+| `spring.ai.mcp.server.protocol` | `STREAMABLE` | 传输协议：`STREAMABLE` / `SSE` / `STATELESS`。本项目用 STREAMABLE |
+| `spring.ai.mcp.server.streamable-http.mcp-endpoint` | `/mcp` | Streamable 唯一端点（单端点，POST 进来、响应直接返回） |
 | `springdoc.swagger-ui.path` | `/swagger-ui.html` | Swagger UI 路径 |
 
 ### 4.2 客户端 `calculator-mcp-client`
@@ -102,8 +101,9 @@ Stop-Process -Id <PID> -Force
 | `spring.ai.mcp.client.name` | `calculator-mcp-client` | 客户端标识 |
 | `spring.ai.mcp.client.version` | `1.0.0` | 客户端版本 |
 | `spring.ai.mcp.client.type` | `SYNC` | 同步客户端（另有 `ASYNC`） |
-| `spring.ai.mcp.client.sse.connections.<名字>.url` | `http://localhost:8080` | 服务端基地址，**不含** `/sse` |
-| `spring.ai.mcp.client.sse.connections.<名字>.sse-endpoint` | `/sse` | 与服务端 `sse-endpoint` 保持一致 |
+| `spring.ai.mcp.client.streamable-http.connections.<名字>.url` | `http://localhost:8080` | 服务端基地址；端点恒为 `/mcp`，无需显式声明 |
+
+> 旧写法是 `spring.ai.mcp.client.sse.connections.<名字>.{url,sse-endpoint}`，只连得上 SSE 服务端，且会把协议版本钉死在 2024-11-05。
 
 > `spring.ai.mcp.client.initialized` 默认 `true`：启动即连接并拉取工具列表。
 > 想让客户端懒连接，设为 `false`，首次调用时才建连。
@@ -114,33 +114,47 @@ Stop-Process -Id <PID> -Force
 
 ```bash
 java -jar calculator-mcp-server/target/calculator-mcp-server-1.0.0.jar --server.port=9090
-java -jar calculator-mcp-client/target/calculator-mcp-client-1.0.0.jar --spring.ai.mcp.client.sse.connections.calculator-server.url=http://localhost:9090
+java -jar calculator-mcp-client/target/calculator-mcp-client-1.0.0.jar --spring.ai.mcp.client.streamable-http.connections.calculator-server.url=http://localhost:9090
 ```
 
-环境变量写法（等价）：`SPRING_AI_MCP_SERVER_PROTOCOL=STREAMABLE`
+环境变量写法（等价）：`SPRING_AI_MCP_SERVER_PROTOCOL=SSE`
 
-### 4.4 切换到 Streamable HTTP（官方推荐）
+### 4.4 传输协议：本项目已用 Streamable HTTP
 
-服务端三行改一行：
+服务端配置就这两行，**不需要改**：
 
 ```yaml
 spring.ai.mcp.server.protocol: STREAMABLE
-# 下面两行删掉（Streamable 只有一个端点 /mcp）
-# sse-endpoint: /sse
-# sse-message-endpoint: /mcp/message
+spring.ai.mcp.server.streamable-http.mcp-endpoint: /mcp
 ```
 
-客户端同步改：
+客户端对应 `spring.ai.mcp.client.streamable-http.connections.calculator-server.url`。依赖不用动——starter 同时支持三种协议。
+
+为什么不留 SSE：
+
+- MCP 规范 2026-07-28 修订已正式废弃 HTTP+SSE（一年过渡期）。
+- SSE 只支持协议修订 **2024-11-05**，等于把版本钉死；换成 Streamable 后客户端握手直接协商到 **2025-11-25**（MCP Java SDK 2.0.1 支持的最高版）。
+
+真要退回 SSE（例如对接只认 SSE 的 Spring AI 1.0 客户端）：
 
 ```yaml
+# 服务端
+spring.ai.mcp.server.protocol: SSE
+spring.ai.mcp.server.sse-endpoint: /sse
+spring.ai.mcp.server.sse-message-endpoint: /mcp/message
+```
+
+```yaml
+# 客户端
 spring.ai.mcp.client:
-  streamable-http:
+  sse:
     connections:
       calculator-server:
         url: http://localhost:8080
+        sse-endpoint: /sse
 ```
 
-依赖不用动。注意端点变成 `POST /mcp`（不再是 `/sse` + `/mcp/message`）。
+代价是端点变回两个（`GET /sse` + `POST /mcp/message`）、协议版本退回 2024-11-05。
 
 ---
 
@@ -152,30 +166,67 @@ spring.ai.mcp.client:
 |---|---|---|
 | 服务端 | `Registered tools: 4` | 4 个 `@McpTool` 被扫描注册成功 |
 | 服务端 | `Tomcat started on port 8080` | HTTP 端口就绪 |
-| 客户端 | `Server response with Protocol: 2024-11-05 ... Info: Implementation[name=calculator-mcp-server...]` | MCP 握手成功，工具已拉到 |
+| 客户端 | `Server response with Protocol: 2025-11-25 ... Info: Implementation[name=calculator-mcp-server...]` | MCP 握手成功，工具已拉到 |
 
 客户端启动时这两条 WARN 是**无害**的，不用管：`No sampling methods found`、`No elicitation methods found`（服务端没实现采样/征询能力）。
 
 ### 5.2 手工探测 MCP 协议（绕过 LLM，直接验协议）
 
-PowerShell 里 `curl` 是 `Invoke-WebRequest` 的别名，**必须写 `curl.exe`**：
+两个前提：
 
-```powershell
-# 1. 长连接，会立刻收到 event:endpoint 和 sessionId
-curl.exe -N http://localhost:8080/sse
+- PowerShell 里 `curl` 是 `Invoke-WebRequest` 的别名，**必须写 `curl.exe`**。
+- 每个请求都必须带 `Accept: application/json, text/event-stream`，缺一个服务端就拒。
+- 请求体**不要**用 `-d '{\"jsonrpc\":\"2.0\",...}'` 这种转义写法——本机实测会被 PowerShell 吃掉引号、返回 400。写成 UTF-8 文件再 `--data-binary "@文件"` 最稳。
 
-# 2. 另开窗口，用上一步的 sessionId 发 JSON-RPC
-curl.exe -X POST "http://localhost:8080/mcp/message?sessionId=<SESSION_ID>" `
-  -H "Content-Type: application/json" `
-  -d '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}'
+准备三个请求体（放在 `target/` 下，该目录已被 gitignore）：
 
-# 3. 调工具
-curl.exe -X POST "http://localhost:8080/mcp/message?sessionId=<SESSION_ID>" `
-  -H "Content-Type: application/json" `
-  -d '{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":12,\"b\":8}}}'
+```json
+// calculator-mcp-server/target/init.json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"manual","version":"1.0.0"}}}
+
+// calculator-mcp-server/target/toolslist.json
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+
+// calculator-mcp-server/target/call.json
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"add","arguments":{"a":12,"b":8}}}
 ```
 
-响应不直接回 POST，而是**从第 1 步那条 SSE 连接推回来**，所以要盯着第 1 个窗口看。
+```powershell
+# 1. initialize，会话 ID 在响应头里（-i 才能看到响应头）
+curl.exe -i -s -X POST http://localhost:8080/mcp `
+  -H "Content-Type: application/json" `
+  -H "Accept: application/json, text/event-stream" `
+  --data-binary "@calculator-mcp-server/target/init.json"
+# HTTP/1.1 200
+# Mcp-Session-Id: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+# {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25",...}}
+
+# 2. 拉工具列表（带上一步的 Mcp-Session-Id）
+curl.exe -s -X POST http://localhost:8080/mcp `
+  -H "Content-Type: application/json" `
+  -H "Accept: application/json, text/event-stream" `
+  -H "Mcp-Session-Id: <SESSION_ID>" `
+  --data-binary "@calculator-mcp-server/target/toolslist.json"
+
+# 3. 调工具
+curl.exe -s -X POST http://localhost:8080/mcp `
+  -H "Content-Type: application/json" `
+  -H "Accept: application/json, text/event-stream" `
+  -H "Mcp-Session-Id: <SESSION_ID>" `
+  --data-binary "@calculator-mcp-server/target/call.json"
+```
+
+响应直接由该次 POST 返回，**不用再盯着另一条长连接**。但格式不统一，两种都要能看：
+
+- `initialize` → 裸 JSON（`Content-Type: application/json`）。
+- `tools/list`、`tools/call` → SSE 帧（`Content-Type: text/event-stream`，`id:` + `event:message` + `data:{...}`）。
+
+想确认 annotations 已下发，看第 2 步的 `tools/list` 输出即可，每个工具都带：
+
+```json
+"annotations":{"title":"加法","readOnlyHint":true,"destructiveHint":false,
+               "idempotentHint":true,"openWorldHint":false}
+```
 
 ### 5.3 验证「模型真的调了工具」还是自己心算
 
@@ -208,7 +259,7 @@ mvn -pl calculator-mcp-server test -Dtest=CalculatorServiceTest    # 只跑一�
 | 客户端报 `api-key` 相关错误 | `DEEPSEEK_API_KEY` 未设置，或设置的终端不是启动 jar 的那个终端 |
 | 端口被占用 | `netstat -ano \| findstr :8080` 找 PID 后杀掉，或用 `--server.port=` 换端口 |
 | 服务端日志没有 `Registered tools` | 工具类缺 `@Component`，或不在 `com.example.mcp.server` 包扫描路径下 |
-| 日志提示 SSE 已 deprecated | 预期内。Spring AI 2.0.0 起 SSE 标记废弃，本项目为兼容 Spring AI 1.0 客户端而保留 |
+| 手工 POST `/mcp` 报 400 / 406 | 漏了 `Accept: application/json, text/event-stream`（两个类型都要写），或 PowerShell 把 `-d` 里的引号吃了，改用 `--data-binary "@文件"` |
 | 模型答对了但没调工具 | 改客户端 system prompt，明确要求「必须调用计算器工具，不要心算」 |
 | Swagger 调 `/api/v1/chat` 一直转圈、没结果 | 该端点已是流式（`produces: text/event-stream`），Swagger UI 不支持 SSE。改用 `curl.exe -N` 验证 |
 
@@ -233,6 +284,6 @@ public double power(
 
 1. 业务逻辑一律放 `CalculatorService`，MCP / REST 两层只做参数翻译与转发。
 2. MCP 工具的自定义异常**必须继承 `RuntimeException`**——这样才会以 `isError: true` 的 tool result 回给模型（模型可自愈）；checked exception 会变成协议级失败。
-3. `@McpTool` 的 `name` 用 snake_case 或单词小写，`description` 写清「做什么 + 返回什么」。
+3. `@McpTool` 的 `name` 用 snake_case 或单词小写，`description` 写清「做什么 + 返回什么」；同时用 `annotations` 声明 `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`，这是给 Host 判断「要不要弹窗确认」的依据。
 4. 服务端写测试用 `@SpringBootTest(webEnvironment = RANDOM_PORT)` + JDK 原生 `HttpClient`，**不要用 `@WebMvcTest`**（Spring Boot 4 中该类注解已迁移到独立 test 模块）。
 5. 合并前跑 `mvn clean package`，服务端 10 个测试必须全绿。

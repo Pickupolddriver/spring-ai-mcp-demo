@@ -12,7 +12,7 @@
 
     <artifactId>calculator-mcp-server</artifactId>
     <name>calculator-mcp-server</name>
-    <description>MCP Server：四则运算工具（SSE）+ REST API + Swagger</description>
+    <description>MCP Server：四则运算工具（Streamable HTTP）+ REST API + Swagger</description>
 
     <dependencies>
         <dependency>

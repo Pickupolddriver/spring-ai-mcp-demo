@@ -9,11 +9,12 @@ spring:
       server:
         name: calculator-mcp-server
         version: 1.0.0
-        # SSE（HTTP + SSE）传输：兼容 Spring AI 1.0 时代的 MCP 客户端。
-        # 注意：Spring AI 2.0.0 起 SSE 已标记 deprecated，官方推荐 STREAMABLE。
-        protocol: SSE
-        sse-endpoint: /sse
-        sse-message-endpoint: /mcp/message
+        # Streamable HTTP 传输：单一端点 POST /mcp，不再是 /sse + /mcp/message 两个端点。
+        # 旧的 HTTP+SSE 传输在 MCP 规范 2026-07-28 中已被正式废弃（一年过渡期），
+        # 且它只支持协议修订 2024-11-05，会把版本钉死，故不再保留。
+        protocol: STREAMABLE
+        streamable-http:
+          mcp-endpoint: /mcp
 
 springdoc:
   swagger-ui:

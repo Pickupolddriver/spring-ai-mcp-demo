@@ -13,6 +13,6 @@ public class OpenApiConfig {
         return new OpenAPI().info(new Info()
                 .title("Calculator MCP Server API")
                 .version("1.0.0")
-                .description("四则运算 REST 接口；同一个 CalculatorService 也通过 /sse 暴露为 MCP 工具"));
+                .description("四则运算 REST 接口；同一个 CalculatorService 也通过 POST /mcp 暴露为 MCP 工具"));
     }
 }

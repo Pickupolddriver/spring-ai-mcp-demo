@@ -13,6 +13,6 @@ public class OpenApiConfig {
         return new OpenAPI().info(new Info()
                 .title("Calculator MCP Client API")
                 .version("1.0.0")
-                .description("MCP Client：通过 SSE 连接 calculator-mcp-server，用 DeepSeek 驱动工具调用"));
+                .description("MCP Client：通过 Streamable HTTP 连接 calculator-mcp-server，用 DeepSeek 驱动工具调用"));
     }
 }

@@ -5,7 +5,7 @@ Spring Boot 4 + Spring AI 2 + MCP（Model Context Protocol）四则运算 Demo�
 同一个 `CalculatorService` 同时以两种方式对外暴露：
 
 - **REST**：`GET /api/v1/calculator/{add|subtract|multiply|divide}`，配 Swagger UI
-- **MCP**：`add` / `subtract` / `multiply` / `divide` 四个工具，通过 SSE 暴露给任意 MCP 客户端
+- **MCP**：`add` / `subtract` / `multiply` / `divide` 四个工具，通过 Streamable HTTP 暴露给任意 MCP 客户端
 
 另有一个 MCP Client 模块，用 DeepSeek 驱动，把「自然语言问题」翻译成「调用远端 MCP 工具」。
 
@@ -19,7 +19,7 @@ Spring Boot 4 + Spring AI 2 + MCP（Model Context Protocol）四则运算 Demo�
 | Spring Boot | 4.0.8 | 注意 starter 改名，见 §5 |
 | Spring AI | 2.0.1 | 通过 `spring-ai-bom` 统一版本 |
 | springdoc-openapi | 3.1.1 | 官方声明支持 Spring Boot v4 |
-| MCP 协议 | 2024-11-05 | 服务端协商出的版本 |
+| MCP 协议 | 2025-11-25 | 客户端与服务端协商出的版本 |
 
 ---
 
@@ -51,13 +51,13 @@ spring-ai-mcp-calculator/          父 POM（packaging=pom，聚合两个模块�
 ```mermaid
 graph LR
     REST["REST 调用方<br/>curl · Swagger UI"] --> CTRL["CalculatorController<br/>GET /api/v1/calculator/*"]
-    MCPC["MCP 调用方<br/>calculator-mcp-client<br/>Claude Desktop 等"] -->|"SSE · JSON-RPC"| TOOLS["CalculatorMcpTools<br/>@McpTool × 4"]
+    MCPC["MCP 调用方<br/>calculator-mcp-client<br/>Claude Desktop 等"] -->|"Streamable HTTP · JSON-RPC"| TOOLS["CalculatorMcpTools<br/>@McpTool × 4"]
     CTRL --> SVC["CalculatorService<br/>add / subtract / multiply / divide"]
     TOOLS --> SVC
 ```
 
 **为什么拆成两个进程？**
-MCP 的本质是「客户端通过协议访问独立进程的服务端」。如果把 Client 和 Server 塞进同一个 JVM，Client 必须在 Server 的 HTTP 端点就绪后才能连接，而 `spring.ai.mcp.client.initialized` 默认为 `true`，意味着 Bean 创建阶段就会去 `initialize()` 拉工具列表——此时 MVC 的 SSE 端点处理器可能还没注册。这是一个真实的启动竞态。拆成两个进程既绕开了竞态，也忠实还原了 MCP 的跨进程架构。
+MCP 的本质是「客户端通过协议访问独立进程的服务端」。如果把 Client 和 Server 塞进同一个 JVM，Client 必须在 Server 的 HTTP 端点就绪后才能连接，而 `spring.ai.mcp.client.initialized` 默认为 `true`，意味着 Bean 创建阶段就会去 `initialize()` 拉工具列表——此时 MVC 的 MCP 端点处理器可能还没注册。这是一个真实的启动竞态。拆成两个进程既绕开了竞态，也忠实还原了 MCP 的跨进程架构。
 
 ---
 
@@ -94,7 +94,7 @@ java -jar calculator-mcp-client/target/calculator-mcp-client-1.0.0.jar
 ```
 
 启动成功的标志：服务端日志出现 `Registered tools: 4`；客户端日志出现
-`Server response with Protocol: 2024-11-05 ... Info: Implementation[name=calculator-mcp-server...]`。
+`Server response with Protocol: 2025-11-25 ... Info: Implementation[name=calculator-mcp-server...]`。
 
 ### 3.4 访问入口
 
@@ -104,7 +104,7 @@ java -jar calculator-mcp-client/target/calculator-mcp-client-1.0.0.jar
 | 服务端 OpenAPI JSON | http://localhost:8080/v3/api-docs |
 | 客户端 Swagger UI | http://localhost:8081/swagger-ui.html |
 | 流式对话演示页 | http://localhost:8081/ |
-| MCP SSE 端点 | http://localhost:8080/sse |
+| MCP 端点（Streamable HTTP） | `POST` http://localhost:8080/mcp |
 
 ---
 
@@ -124,45 +124,62 @@ curl "http://localhost:8080/api/v1/calculator/divide?a=1&b=0"
 
 ### 4.2 MCP 协议（手工走一遍 JSON-RPC）
 
+Streamable HTTP 只有一个端点 `POST /mcp`。会话 ID 不再放在 URL 查询参数里，而是由 `initialize` 通过**响应头** `Mcp-Session-Id` 下发；后续每个请求带上这个头即可。响应也从那条长连接上「推回来」变成**由该次 POST 直接返回**。
+
 ```bash
-# 第 1 步：打开 SSE 长连接，服务端立刻下发一个 endpoint 事件
-curl -N http://localhost:8080/sse
-# event:endpoint
-# data:/mcp/message?sessionId=<SESSION_ID>
+# 第 1 步：initialize，从响应头拿 Mcp-Session-Id
+curl -i -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+       "protocolVersion":"2025-11-25","capabilities":{},
+       "clientInfo":{"name":"manual","version":"1.0.0"}}}'
+
+# HTTP/1.1 200
+# Mcp-Session-Id: <SESSION_ID>
+# {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25",
+#   "capabilities":{"tools":{"listChanged":true},...},
+#   "serverInfo":{"name":"calculator-mcp-server","version":"1.0.0"}}}
 ```
 
-拿到 `SESSION_ID` 后，把 JSON-RPC 请求 POST 到 `/mcp/message?sessionId=<SESSION_ID>`：
+> `Accept` 必须同时包含 `application/json` 与 `text/event-stream`，否则服务端拒绝。这一步返回的是**裸 JSON**，下一步返回的却是 **SSE 帧**——协议允许两者，所以调用方要给两种响应体都留出路。
 
 ```bash
-curl -X POST "http://localhost:8080/mcp/message?sessionId=<SESSION_ID>" \
+# 第 2 步：拉工具列表
+curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: <SESSION_ID>" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+
+# id:<SESSION_ID>
+# event:message
+# data:{"jsonrpc":"2.0","id":2,"result":{"tools":[
+#   {"name":"add","title":"加法","description":"计算两个数之和，返回 a + b",
+#    "inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema",
+#      "type":"object","properties":{
+#        "a":{"type":"number","format":"double","description":"第一个加数"},
+#        "b":{"type":"number","format":"double","description":"第二个加数"}},
+#      "required":["a","b"]},
+#    "annotations":{"title":"加法","readOnlyHint":true,"destructiveHint":false,
+#                   "idempotentHint":true,"openWorldHint":false}},
+#   ... 共 4 个工具
+# ]}}
 ```
 
-响应通过刚才那条 SSE 连接推送回来：
-
-```json
-{"jsonrpc":"2.0","id":2,"result":{"tools":[
-  {"name":"add","description":"计算两个数之和，返回 a + b",
-   "inputSchema":{"type":"object","properties":{
-     "a":{"type":"number","format":"double","description":"第一个加数"},
-     "b":{"type":"number","format":"double","description":"第二个加数"}},
-   "required":["a","b"]}},
-  ... 共 4 个工具
-]}}
-```
-
-调用工具：
+`annotations` 是写给客户端的**安全提示**。四个运算都是纯函数，所以 `readOnlyHint: true`（不修改任何状态）、`idempotentHint: true`（重复调用结果一致）、`destructiveHint: false`、`openWorldHint: false`（不触碰外部世界）。Host 据此判断该工具能不能静默执行、要不要弹窗让用户二次确认。
 
 ```bash
-curl -X POST "http://localhost:8080/mcp/message?sessionId=<SESSION_ID>" \
+# 第 3 步：调用工具
+curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: <SESSION_ID>" \
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/call",
        "params":{"name":"add","arguments":{"a":12,"b":8}}}'
-```
 
-```json
-{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"20.0"}],"isError":false}}
+# event:message
+# data:{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"20.0"}],"isError":false}}
 ```
 
 除零时走错误分支（`isError: true`，不会抛协议级异常）：
@@ -183,7 +200,7 @@ curl -N -X POST http://localhost:8081/api/v1/chat \
 # data: = 12.5
 ```
 
-> PowerShell 下这条命令不能照抄：`-d` 里的双引号会被 shell 吃掉（报 `JSON parse error: Unexpected character`），body 需要用反斜杠转义的写法，见 [AGENTS.md](AGENTS.md) §5.2。
+> PowerShell 下这条命令不能照抄：`-d` 里的双引号会被 shell 吃掉（报 `JSON parse error: Unexpected character`），把 body 写成 UTF-8 文件再 `curl.exe --data-binary "@file"` 最稳，见 [AGENTS.md](AGENTS.md) §5.2。
 
 这条请求背后发生的完整链路：
 
@@ -204,7 +221,7 @@ sequenceDiagram
     M->>S: tools/call divide(100, 8)
     S->>V: divide(100, 8)
     V-->>S: 12.5
-    S-->>M: result: 12.5（JSON-RPC 响应经 SSE 推回）
+    S-->>M: result: 12.5（JSON-RPC 响应直接由该次 POST 返回）
     M-->>C: 工具结果
     C->>D: 带上工具结果继续对话
     D-->>C: 100 ÷ 8 = 12.5
@@ -237,7 +254,9 @@ MCP（Model Context Protocol）是 Anthropic 提出的开放协议，把「模�
 @Component
 public class CalculatorMcpTools {
 
-    @McpTool(name = "add", description = "计算两个数之和，返回 a + b")
+    @McpTool(name = "add", title = "加法", description = "计算两个数之和，返回 a + b",
+            annotations = @McpTool.McpAnnotations(title = "加法", readOnlyHint = true, destructiveHint = false,
+                    idempotentHint = true, openWorldHint = false))
     public double add(
             @McpToolParam(description = "第一个加数", required = true) double a,
             @McpToolParam(description = "第二个加数", required = true) double b) {
@@ -248,7 +267,9 @@ public class CalculatorMcpTools {
 ```
 
 - `@McpTool` 的 `description` 极其重要——**模型就是靠这段文字决定要不要调用这个工具**。写给人看的注释和写给模型看的 description 是两件事。
+- `name` 是给协议和代码用的标识（客户端按它发起 `tools/call`），`title` 是给人看的显示名。MCP 里 `title` 有两处（工具级、annotations 内），是同一语义的两个独立字段，所以两处都写。
 - 参数上的 `@McpToolParam` 会被翻译成 JSON Schema 的 `inputSchema`，模型据此生成结构化参数。
+- `annotations` 里的四个 hint 会随 `tools/list` 下发给客户端，是**给 Host 的安全元数据**（能不能静默执行、要不要弹窗确认）。这四个运算都是纯函数，所以 `readOnlyHint` / `idempotentHint` 为 `true`，另两个为 `false`。
 - 加了 `@Component`，Spring AI 的注解扫描器在启动时自动注册，日志里就能看到 `Registered tools: 4`。
 - Spring AI 2 里注解在包 `org.springframework.ai.mcp.annotation`。
 
@@ -261,16 +282,29 @@ public class CalculatorMcpTools {
 
 所以给 MCP 工具做业务校验时，**自定义异常请继承 `RuntimeException`**。
 
-### 5.4 传输协议：SSE vs STREAMABLE
+### 5.4 传输协议：Streamable HTTP（本项目）vs HTTP+SSE（旧）
 
-| | SSE | Streamable HTTP |
+| | HTTP+SSE（旧） | Streamable HTTP（本项目） |
 |---|---|---|
 | 端点 | `GET /sse`（长连接）+ `POST /mcp/message`（发请求） | 单端点 `POST /mcp` |
-| 连接 | 每个客户端一条持久 SSE 连接 | 请求即可，可无状态 |
+| 会话 | `sessionId` 查询参数，必须先开长连接才拿得到 | `Mcp-Session-Id` 请求头，由 `initialize` 响应头下发 |
+| 响应 | 从 SSE 长连接推回来 | 由该次 POST 直接返回 |
 | 状态 | Spring AI 2.0.0 起 **已 deprecated** | 官方推荐 |
-| 兼容性 | Spring AI 1.0 客户端只认 SSE | 需要较新客户端 |
+| 协议版本 | **只支持 2024-11-05**，把版本钉死 | 可协商到 SDK 支持的最高版（本项目实测 **2025-11-25**） |
+| 兼容性 | Spring AI 1.0 客户端只认它 | 需要较新的客户端 |
 
-本项目按要求使用 SSE：
+**本项目用 Streamable HTTP**，服务端只需两行：
+
+```yaml
+spring.ai.mcp.server.protocol: STREAMABLE
+spring.ai.mcp.server.streamable-http.mcp-endpoint: /mcp
+```
+
+注意 `mcp-endpoint` 默认就是 `/mcp`，写出来只是为了让端点显式可见。客户端同步用 `streamable-http.connections.<name>.url`（不再有 `sse-endpoint`）。
+
+**为什么不保留 SSE**：MCP 规范 2026-07-28 修订已正式废弃 HTTP+SSE（给出一年过渡期），且它把协议版本锁死在 2024-11-05——切到 Streamable 后客户端握手直接协商到 2025-11-25，跨了三个修订。**依赖不用动**——`spring-ai-starter-mcp-server-webmvc` 同时支持 SSE / STREAMABLE / STATELESS 三种协议。
+
+真要用回 SSE（比如对接一个只认 SSE 的 Spring AI 1.0 客户端）：
 
 ```yaml
 spring.ai.mcp.server.protocol: SSE
@@ -278,13 +312,7 @@ spring.ai.mcp.server.sse-endpoint: /sse
 spring.ai.mcp.server.sse-message-endpoint: /mcp/message
 ```
 
-想切到官方推荐的 Streamable HTTP，只需把上面三行换成：
-
-```yaml
-spring.ai.mcp.server.protocol: STREAMABLE
-```
-
-客户端配置也要同步换成 `spring.ai.mcp.client.streamable-http.connections.<name>.url`。**依赖不用动**——`spring-ai-starter-mcp-server-webmvc` 同时支持 SSE / STREAMABLE / STATELESS 三种协议。
+客户端换成 `spring.ai.mcp.client.sse.connections.<name>.{url,sse-endpoint}` 即可。代价是协议版本退回 2024-11-05。
 
 ### 5.5 客户端：ChatClient + ToolCallbackProvider
 
@@ -329,6 +357,6 @@ System prompt 里那句「必须调用工具，不要自己心算」不是客套
 
 **换成别的模型**：改客户端 pom 依赖（`spring-ai-starter-model-openai` / `-ollama` / `-anthropic`）+ `application.yml` 里的 key，`CalculatorChatService` 一行不用改。
 
-**把工具接到 Claude Desktop 等真实 Host**：SSE 模式下在 Host 配置里写 `http://localhost:8080/sse` 即可，本项目已经手工验证过协议交互是标准兼容的。
+**把工具接到 Claude Desktop 等真实 Host**：在 Host 配置里写 Streamable HTTP 端点 `http://localhost:8080/mcp` 即可，本项目已经手工验证过协议交互是标准兼容的。
 
 **接到真实业务**：把 `CalculatorService` 换成真实的领域服务，MCP 层保持只做「参数翻译 + 转发」的薄壳。
